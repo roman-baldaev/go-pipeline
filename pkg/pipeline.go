@@ -100,7 +100,7 @@ func (p *Pipeline[T]) startConcurrent(ctx context.Context) (<-chan Result, error
 func (p *Pipeline[T]) startSequence(ctx context.Context) error {
 	chs := make([]chan T, 0, len(p.SequenceTasks)+1)
 	initCh := make(chan T, 10)
-	:= p.StartCall(ctx)
+	err := p.StartCall(ctx, initCh)
 	defer close(initCh)
 	chs[0] = initCh
 	g, goCtx := errgroup.WithContext(ctx)
