@@ -98,10 +98,11 @@ func (p *Pipeline[T]) startConcurrent(ctx context.Context) (<-chan Result, error
 }
 
 func (p *Pipeline[T]) startSequence(ctx context.Context) error {
-	chs := make([]chan T, 0, len(p.SequenceTasks)+1)
+	chs := make([]chan T, len(p.SequenceTasks)+1)
+	// TODO: make capacity parameterizable
 	initCh := make(chan T, 10)
+	// TODO: handle error
 	err := p.StartCall(ctx, initCh)
-	defer close(initCh)
 	chs[0] = initCh
 	g, goCtx := errgroup.WithContext(ctx)
 	for i, task := range p.SequenceTasks {
@@ -117,12 +118,35 @@ func (p *Pipeline[T]) startSequence(ctx context.Context) error {
 			return err
 		})
 	}
-	err := g.Wait()
+	g.Go(func() error {
+		err := p.runLast(goCtx, chs[len(chs)-1])
+		fmt.Println("finished last")
+		return err
+	})
+	err = g.Wait()
 	if err != nil {
 		fmt.Println(err)
 		return err
 	}
 	return nil
+}
+
+func (p *Pipeline[T]) runLast(ctx context.Context, in <-chan T) error {
+	res := make([]T, 0)
+	for {
+		select {
+		case _item, ok := <-in:
+			if !ok {
+				fmt.Println(res)
+				return nil
+			}
+			res = append(res, _item)
+		case <-ctx.Done():
+			err := ctx.Err()
+			msg := "sequence stage was cancelled"
+			return errors.Wrap(err, msg)
+		}
+	}
 }
 
 func (p *Pipeline[T]) runSeq(ctx context.Context, seq SequenceHandler[T], once *sync.Once, in <-chan T, out chan<- T) error {
@@ -142,6 +166,7 @@ func (p *Pipeline[T]) runSeq(ctx context.Context, seq SequenceHandler[T], once *
 				err := seq.Finish(ctx)
 				return err
 			}
+			// TODO: send as a pointer
 			itemOut, err := seq.Handle(ctx, itemIn)
 			if err != nil {
 				return err
